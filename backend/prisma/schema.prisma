@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String
+  role         String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  patient   Patient?
+  doctor    Doctor?
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+model Patient {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @db.Uuid
+  firstName   String
+  lastName    String
+  phone       String
+  dateOfBirth DateTime? @db.Date
+  gender      String?
+
+  user         User          @relation(fields: [userId], references: [id])
+  appointments Appointment[]
+
+  @@map("patients")
+}
+
+model Doctor {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @db.Uuid
+  firstName        String
+  lastName         String
+  phone            String
+  specialization   String
+  qualification    String
+  experience       String
+  bio              String?  @db.Text
+  consultationFee  Decimal  @db.Decimal(10, 2)
+
+  user         User             @relation(fields: [userId], references: [id])
+  schedules    DoctorSchedule[]
+  appointments Appointment[]
+
+  @@map("doctors")
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  name        String           @unique
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id    String           @id @default(uuid()) @db.Uuid
+  name  String           @unique
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model DoctorSchedule {
+  id         String   @id @default(uuid()) @db.Uuid
+  doctorId   String   @db.Uuid
+  dayOfWeek  Int
+  startTime  DateTime @db.Time
+  endTime    DateTime @db.Time
+
+  doctor Doctor @relation(fields: [doctorId], references: [id])
+
+  @@map("doctor_schedules")
+}
+
+model Appointment {
+  id            String   @id @default(uuid()) @db.Uuid
+  patientId     String   @db.Uuid
+  doctorId      String   @db.Uuid
+  appointmentDate DateTime @db.Date
+  status        String
+  paymentStatus String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  doctor       Doctor        @relation(fields: [doctorId], references: [id])
+  prescription Prescription?
+  invoice      Invoice?
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([appointmentDate])
+  @@map("appointments")
+}
+
+model Prescription {
+  id            String @id @default(uuid()) @db.Uuid
+  appointmentId String @unique @db.Uuid
+
+  appointment Appointment         @relation(fields: [appointmentId], references: [id])
+  items       PrescriptionItem[]
+
+  @@map("prescriptions")
+}
+
+model PrescriptionItem {
+  id             String @id @default(uuid()) @db.Uuid
+  prescriptionId String @db.Uuid
+  medication     String
+  dosage         String
+  frequency      String
+  duration       String
+
+  prescription Prescription @relation(fields: [prescriptionId], references: [id])
+
+  @@map("prescription_items")
+}
+
+model Invoice {
+  id            String   @id @default(uuid()) @db.Uuid
+  appointmentId String   @unique @db.Uuid
+  amount        Decimal  @db.Decimal(10, 2)
+  total         Decimal  @db.Decimal(10, 2)
+  status        String
+  issuedAt      DateTime @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  payments    Payment[]
+
+  @@map("invoices")
+}
+
+model Payment {
+  id            String    @id @default(uuid()) @db.Uuid
+  invoiceId     String    @db.Uuid
+  amount        Decimal   @db.Decimal(10, 2)
+  method        String
+  status        String
+  transactionId String?
+  paidAt        DateTime?
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+model ClinicSetting {
+  id    String @id @default(uuid()) @db.Uuid
+  key   String @unique
+  value String
+
+  @@map("clinic_settings")
+}
+
+model BookingRule {
+  id    String @id @default(uuid()) @db.Uuid
+  key   String @unique
+  value String
+
+  @@map("booking_rules")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  action     String
+  entityType String
+  entityId   String   @db.Uuid
+  oldValue   Json?
+  newValue   Json?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
