@@ -3,6 +3,10 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 
+import authRoutes from "./modules/auth/auth.routes.js";
+import doctorRoutes from "./modules/doctor/doctor.routes.js";
+import patientRoutes from "./modules/patient/patient.routes.js";
+
 const app = express();
 
 app.use(helmet());
@@ -18,6 +22,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(cookieParser());
+
+app.use("/api/auth", authRoutes);
+app.use("/api/doctors", doctorRoutes);
+app.use("/api/patients", patientRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({

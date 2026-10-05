@@ -15,9 +15,10 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  patient   Patient?
-  doctor    Doctor?
-  auditLogs AuditLog[]
+  patient       Patient?
+  doctor        Doctor?
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
 
   @@map("users")
 }
@@ -38,16 +39,16 @@ model Patient {
 }
 
 model Doctor {
-  id               String   @id @default(uuid()) @db.Uuid
-  userId           String   @unique @db.Uuid
-  firstName        String
-  lastName         String
-  phone            String
-  specialization   String
-  qualification    String
-  experience       String
-  bio              String?  @db.Text
-  consultationFee  Decimal  @db.Decimal(10, 2)
+  id              String  @id @default(uuid()) @db.Uuid
+  userId          String  @unique @db.Uuid
+  firstName       String
+  lastName        String
+  phone           String
+  specialization  String
+  qualification   String
+  experience      String
+  bio             String? @db.Text
+  consultationFee Decimal @db.Decimal(10, 2)
 
   user         User             @relation(fields: [userId], references: [id])
   schedules    DoctorSchedule[]
@@ -83,12 +84,27 @@ model RolePermission {
   @@map("role_permissions")
 }
 
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
 model DoctorSchedule {
-  id         String   @id @default(uuid()) @db.Uuid
-  doctorId   String   @db.Uuid
-  dayOfWeek  Int
-  startTime  DateTime @db.Time
-  endTime    DateTime @db.Time
+  id        String   @id @default(uuid()) @db.Uuid
+  doctorId  String   @db.Uuid
+  dayOfWeek Int
+  startTime DateTime @db.Time
+  endTime   DateTime @db.Time
 
   doctor Doctor @relation(fields: [doctorId], references: [id])
 
@@ -96,14 +112,14 @@ model DoctorSchedule {
 }
 
 model Appointment {
-  id            String   @id @default(uuid()) @db.Uuid
-  patientId     String   @db.Uuid
-  doctorId      String   @db.Uuid
+  id              String   @id @default(uuid()) @db.Uuid
+  patientId       String   @db.Uuid
+  doctorId        String   @db.Uuid
   appointmentDate DateTime @db.Date
-  status        String
-  paymentStatus String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  status          String
+  paymentStatus   String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   patient      Patient       @relation(fields: [patientId], references: [id])
   doctor       Doctor        @relation(fields: [doctorId], references: [id])
@@ -120,7 +136,7 @@ model Prescription {
   id            String @id @default(uuid()) @db.Uuid
   appointmentId String @unique @db.Uuid
 
-  appointment Appointment         @relation(fields: [appointmentId], references: [id])
+  appointment Appointment        @relation(fields: [appointmentId], references: [id])
   items       PrescriptionItem[]
 
   @@map("prescriptions")
