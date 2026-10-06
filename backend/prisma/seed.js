@@ -75,11 +75,35 @@ const main = async () => {
           experience: "10 years",
           bio: "Experienced cardiologist.",
           consultationFee: 1000,
+
+          schedules: {
+            create: [
+              {
+                dayOfWeek: 1,
+                startTime: new Date("1970-01-01T09:00:00.000Z"),
+                endTime: new Date("1970-01-01T13:00:00.000Z"),
+              },
+              {
+                dayOfWeek: 3,
+                startTime: new Date("1970-01-01T09:00:00.000Z"),
+                endTime: new Date("1970-01-01T13:00:00.000Z"),
+              },
+              {
+                dayOfWeek: 5,
+                startTime: new Date("1970-01-01T09:00:00.000Z"),
+                endTime: new Date("1970-01-01T13:00:00.000Z"),
+              },
+            ],
+          },
         },
       },
     },
     include: {
-      doctor: true,
+      doctor: {
+        include: {
+          schedules: true,
+        },
+      },
     },
   });
 
@@ -97,6 +121,7 @@ const main = async () => {
   });
 
   console.log("Seed completed.");
+
   console.log("Roles:", {
     doctorRole: doctorRole.name,
     adminRole: adminRole.name,
@@ -104,6 +129,7 @@ const main = async () => {
   });
 
   console.log("Doctor:", doctor.email);
+  console.log("Doctor schedules:", doctor.doctor.schedules);
   console.log("Admin:", admin.email);
 };
 

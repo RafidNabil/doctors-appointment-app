@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import authRoutes from "./modules/auth/auth.routes.js";
 import doctorRoutes from "./modules/doctor/doctor.routes.js";
 import patientRoutes from "./modules/patient/patient.routes.js";
+import appointmentRoutes from "./modules/appointment/appointment.routes.js";
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use(cookieParser());
 app.use("/api/auth", authRoutes);
 app.use("/api/doctors", doctorRoutes);
 app.use("/api/patients", patientRoutes);
+app.use("/api/appointments", appointmentRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({
