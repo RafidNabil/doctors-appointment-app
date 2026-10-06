@@ -131,25 +131,43 @@ export const bookAppointment = async (patientUserId, data) => {
     );
   }
 
-  return prisma.appointment.create({
-    data: {
-      patientId: patient.id,
-      doctorId: doctor.id,
-      appointmentDate,
-      status: "CONFIRMED",
-      paymentStatus: "PENDING",
-    },
-    include: {
-      doctor: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          specialization: true,
-          consultationFee: true,
-        },
+  return prisma.$transaction(async (tx) => {
+    const appointment = await tx.appointment.create({
+      data: {
+        patientId: patient.id,
+        doctorId: doctor.id,
+        appointmentDate,
+        status: "CONFIRMED",
+        paymentStatus: "PENDING",
       },
-    },
+    });
+
+    await tx.invoice.create({
+      data: {
+        appointmentId: appointment.id,
+        amount: doctor.consultationFee,
+        total: doctor.consultationFee,
+        status: "UNPAID",
+      },
+    });
+
+    return tx.appointment.findUnique({
+      where: {
+        id: appointment.id,
+      },
+      include: {
+        doctor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            specialization: true,
+            consultationFee: true,
+          },
+        },
+        invoice: true,
+      },
+    });
   });
 };
 
@@ -188,6 +206,7 @@ export const getUpcomingAppointments = async (
             consultationFee: true,
           },
         },
+        invoice: true,
       },
       orderBy: {
         appointmentDate: "asc",
@@ -224,6 +243,7 @@ export const getUpcomingAppointments = async (
           gender: true,
         },
       },
+      invoice: true,
     },
     orderBy: {
       appointmentDate: "asc",
@@ -262,6 +282,7 @@ export const getAppointmentHistory = async (
             specialization: true,
           },
         },
+        invoice: true,
       },
       orderBy: {
         appointmentDate: "desc",
@@ -297,6 +318,7 @@ export const getAppointmentHistory = async (
           gender: true,
         },
       },
+      invoice: true,
     },
     orderBy: {
       appointmentDate: "desc",
@@ -324,19 +346,52 @@ export const cancelAppointment = async (
       doctorId: doctor.id,
       status: "CONFIRMED",
     },
+    include: {
+      invoice: {
+        include: {
+          payments: true,
+        },
+      },
+    },
   });
 
   if (!appointment) {
     throw new Error("Appointment not found");
   }
 
-  return prisma.appointment.update({
-    where: {
-      id: appointment.id,
-    },
-    data: {
-      status: "CANCELLED",
-    },
+  if (appointment.invoice?.payments.length > 0) {
+    throw new Error(
+      "Appointment cannot be cancelled because the invoice has payment records"
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    if (appointment.invoice) {
+      await tx.invoice.delete({
+        where: {
+          id: appointment.invoice.id,
+        },
+      });
+    }
+
+    return tx.appointment.update({
+      where: {
+        id: appointment.id,
+      },
+      data: {
+        status: "CANCELLED",
+      },
+      include: {
+        doctor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            specialization: true,
+          },
+        },
+      },
+    });
   });
 };
 
@@ -397,6 +452,9 @@ export const rescheduleAppointment = async (
     data: {
       appointmentDate: newAppointmentDate,
     },
+    include: {
+      invoice: true,
+    },
   });
 };
 
@@ -433,6 +491,9 @@ export const completeAppointment = async (
     data: {
       status: "COMPLETED",
     },
+    include: {
+      invoice: true,
+    },
   });
 };
 
@@ -456,19 +517,52 @@ export const markNoShow = async (
       doctorId: doctor.id,
       status: "CONFIRMED",
     },
+    include: {
+      invoice: {
+        include: {
+          payments: true,
+        },
+      },
+    },
   });
 
   if (!appointment) {
     throw new Error("Appointment not found");
   }
 
-  return prisma.appointment.update({
-    where: {
-      id: appointment.id,
-    },
-    data: {
-      status: "NO_SHOW",
-    },
+  if (appointment.invoice?.payments.length > 0) {
+    throw new Error(
+      "Appointment cannot be marked as no-show because the invoice has payment records"
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    if (appointment.invoice) {
+      await tx.invoice.delete({
+        where: {
+          id: appointment.invoice.id,
+        },
+      });
+    }
+
+    return tx.appointment.update({
+      where: {
+        id: appointment.id,
+      },
+      data: {
+        status: "NO_SHOW",
+      },
+      include: {
+        doctor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            specialization: true,
+          },
+        },
+      },
+    });
   });
 };
 

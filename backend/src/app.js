@@ -8,6 +8,7 @@ import doctorRoutes from "./modules/doctor/doctor.routes.js";
 import patientRoutes from "./modules/patient/patient.routes.js";
 import appointmentRoutes from "./modules/appointment/appointment.routes.js";
 import prescriptionRoutes from "./modules/prescription/prescription.routes.js";
+import invoiceRoutes from "./modules/invoice/invoice.routes.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use("/api/doctors", doctorRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/prescriptions", prescriptionRoutes);
+app.use("/api/invoices", invoiceRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({
