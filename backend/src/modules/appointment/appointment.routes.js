@@ -15,6 +15,7 @@ import {
 import {
   authenticate,
   requireRole,
+  requirePermission
 } from "../../middlewares/auth.middleware.js";
 
 import { validate } from "../../middlewares/validate.middleware.js";
@@ -30,7 +31,7 @@ const router = express.Router();
 router.get(
   "/available-slots",
   authenticate,
-  requireRole("PATIENT"),
+  requirePermission("VIEW_DOCTOR_SCHEDULES"),
   validate(getAvailableSlotsSchema, "query"),
   getAvailableSlots
 );
@@ -38,7 +39,7 @@ router.get(
 router.post(
   "/",
   authenticate,
-  requireRole("PATIENT"),
+  requirePermission("BOOK_APPOINTMENTS"),
   validate(bookAppointmentSchema),
   bookAppointment
 );
@@ -60,14 +61,14 @@ router.get(
 router.patch(
   "/:id/cancel",
   authenticate,
-  requireRole("DOCTOR"),
+  requirePermission("MANAGE_DOCTOR_APPOINTMENTS"),
   cancelAppointment
 );
 
 router.patch(
   "/:id/reschedule",
   authenticate,
-  requireRole("DOCTOR"),
+  requirePermission("MANAGE_DOCTOR_APPOINTMENTS"),
   validate(rescheduleAppointmentSchema),
   rescheduleAppointment
 );
@@ -75,21 +76,21 @@ router.patch(
 router.patch(
   "/:id/complete",
   authenticate,
-  requireRole("DOCTOR"),
+  requirePermission("MANAGE_DOCTOR_APPOINTMENTS"),
   completeAppointment
 );
 
 router.patch(
   "/:id/no-show",
   authenticate,
-  requireRole("DOCTOR"),
+  requirePermission("MANAGE_DOCTOR_APPOINTMENTS"),
   markNoShow
 );
 
 router.get(
   "/:id/patient",
   authenticate,
-  requireRole("DOCTOR"),
+  requirePermission("VIEW_PATIENT_INFORMATION"),
   getAppointmentPatient
 );
 

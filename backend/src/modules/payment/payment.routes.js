@@ -3,6 +3,7 @@ import express from "express";
 import {
   authenticate,
   requireRole,
+  requirePermission
 } from "../../middlewares/auth.middleware.js";
 
 import { validate } from "../../middlewares/validate.middleware.js";
@@ -22,7 +23,7 @@ const router = express.Router();
 router.post(
   "/",
   authenticate,
-  requireRole("DOCTOR", "ADMIN"),
+  requirePermission("RECORD_PAYMENTS", "MANAGE_PAYMENTS"),
   validate(createPaymentSchema),
   createPayment
 );

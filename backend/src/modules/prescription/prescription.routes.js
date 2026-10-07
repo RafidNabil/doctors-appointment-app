@@ -1,5 +1,5 @@
 import express from "express";
-import { authenticate, requireRole } from "../../middlewares/auth.middleware.js";
+import { authenticate, requireRole, requirePermission } from "../../middlewares/auth.middleware.js";
 import { validate } from "../../middlewares/validate.middleware.js";
 
 import {
@@ -16,7 +16,7 @@ const router = express.Router();
 router.post(
   "/",
   authenticate,
-  requireRole("DOCTOR"),
+  requirePermission("MANAGE_PRESCRIPTIONS"),
   validate(createPrescriptionSchema),
   createPrescription
 );
@@ -38,7 +38,7 @@ router.get(
 router.put(
   "/:id",
   authenticate,
-  requireRole("DOCTOR"),
+  requirePermission("MANAGE_PRESCRIPTIONS"),
   validate(updatePrescriptionSchema),
   updatePrescription
 );

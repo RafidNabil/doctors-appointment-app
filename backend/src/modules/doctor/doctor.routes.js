@@ -10,6 +10,7 @@ import {
 import {
   authenticate,
   requireRole,
+  requirePermission
 } from "../../middlewares/auth.middleware.js";
 
 import { validate } from "../../middlewares/validate.middleware.js";
@@ -23,14 +24,14 @@ const router = express.Router();
 router.get(
   "/me/profile",
   authenticate,
-  requireRole("DOCTOR"),
+  requirePermission("MANAGE_DOCTOR_PROFILE"),
   getMyProfile
 );
 
 router.put(
   "/me/profile",
   authenticate,
-  requireRole("DOCTOR"),
+  requirePermission("MANAGE_DOCTOR_PROFILE"),
   validate(updateDoctorProfileSchema),
   updateMyProfile
 );

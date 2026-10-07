@@ -38,3 +38,48 @@ export const requireRole = (...roles) => {
     next();
   };
 };
+
+export const requirePermission = (...permissions) => {
+  return async (req, res, next) => {
+    try {
+      const role = await prisma.role.findUnique({
+        where: {
+          name: req.user.role,
+        },
+        include: {
+          permissions: {
+            include: {
+              permission: true,
+            },
+          },
+        },
+      });
+
+      if (!role) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied",
+        });
+      }
+
+      const userPermissions = role.permissions.map(
+        (rolePermission) => rolePermission.permission.name
+      );
+
+      const hasPermission = permissions.some((permission) =>
+        userPermissions.includes(permission)
+      );
+
+      if (!hasPermission) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied",
+        });
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
