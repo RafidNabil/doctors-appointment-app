@@ -1,4 +1,5 @@
 import { prisma } from "../../config/prisma.js";
+import { createAuditLog } from "../../utils/audit.js";
 
 export const createPayment = async (userId, role, data) => {
   const invoice = await prisma.invoice.findUnique({
@@ -67,6 +68,21 @@ export const createPayment = async (userId, role, data) => {
       },
       data: {
         paymentStatus: "PAID",
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "PAYMENT_RECORDED",
+      entityType: "PAYMENT",
+      entityId: payment.id,
+      oldValue: null,
+      newValue: {
+        invoiceId: payment.invoiceId,
+        amount: payment.amount.toString(),
+        method: payment.method,
+        status: payment.status,
+        paidAt: payment.paidAt?.toISOString() ?? null,
       },
     });
 

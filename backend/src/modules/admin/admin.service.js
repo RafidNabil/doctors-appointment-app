@@ -1,4 +1,5 @@
 import { prisma } from "../../config/prisma.js";
+import { createAuditLog } from "../../utils/audit.js";
 
 const timeToDate = (time) => {
   const [hours, minutes] = time.split(":").map(Number);
@@ -73,10 +74,24 @@ export const getDoctorById = async (doctorId) => {
   return doctor;
 };
 
-export const updateDoctorStatus = async (doctorId, isActive) => {
+export const updateDoctorStatus = async (
+  userId,
+  doctorId,
+  isActive
+) => {
   const doctor = await prisma.doctor.findUnique({
     where: {
       id: doctorId,
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          isActive: true,
+        },
+      },
     },
   });
 
@@ -84,19 +99,36 @@ export const updateDoctorStatus = async (doctorId, isActive) => {
     throw new Error("Doctor not found");
   }
 
-  return prisma.user.update({
-    where: {
-      id: doctor.userId,
-    },
-    data: {
-      isActive,
-    },
-    select: {
-      id: true,
-      email: true,
-      role: true,
-      isActive: true,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedUser = await tx.user.update({
+      where: {
+        id: doctor.userId,
+      },
+      data: {
+        isActive,
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        isActive: true,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "DOCTOR_STATUS_UPDATED",
+      entityType: "DOCTOR",
+      entityId: doctor.id,
+      oldValue: {
+        isActive: doctor.user.isActive,
+      },
+      newValue: {
+        isActive: updatedUser.isActive,
+      },
+    });
+
+    return updatedUser;
   });
 };
 
@@ -148,10 +180,24 @@ export const getPatientById = async (patientId) => {
   return patient;
 };
 
-export const updatePatientStatus = async (patientId, isActive) => {
+export const updatePatientStatus = async (
+  userId,
+  patientId,
+  isActive
+) => {
   const patient = await prisma.patient.findUnique({
     where: {
       id: patientId,
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          isActive: true,
+        },
+      },
     },
   });
 
@@ -159,19 +205,36 @@ export const updatePatientStatus = async (patientId, isActive) => {
     throw new Error("Patient not found");
   }
 
-  return prisma.user.update({
-    where: {
-      id: patient.userId,
-    },
-    data: {
-      isActive,
-    },
-    select: {
-      id: true,
-      email: true,
-      role: true,
-      isActive: true,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedUser = await tx.user.update({
+      where: {
+        id: patient.userId,
+      },
+      data: {
+        isActive,
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        isActive: true,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "PATIENT_STATUS_UPDATED",
+      entityType: "PATIENT",
+      entityId: patient.id,
+      oldValue: {
+        isActive: patient.user.isActive,
+      },
+      newValue: {
+        isActive: updatedUser.isActive,
+      },
+    });
+
+    return updatedUser;
   });
 };
 
@@ -235,6 +298,7 @@ export const getAppointmentById = async (appointmentId) => {
 };
 
 export const updateAppointmentStatus = async (
+  userId,
   appointmentId,
   status
 ) => {
@@ -274,7 +338,7 @@ export const updateAppointmentStatus = async (
         });
       }
 
-      return tx.appointment.update({
+      const updatedAppointment = await tx.appointment.update({
         where: {
           id: appointment.id,
         },
@@ -286,6 +350,29 @@ export const updateAppointmentStatus = async (
           doctor: true,
         },
       });
+
+      await createAuditLog(tx, {
+        userId,
+        action: `APPOINTMENT_${status}`,
+        entityType: "APPOINTMENT",
+        entityId: appointment.id,
+        oldValue: {
+          status: appointment.status,
+          paymentStatus: appointment.paymentStatus,
+          appointmentDate:
+            appointment.appointmentDate.toISOString(),
+          invoiceId: appointment.invoice?.id ?? null,
+        },
+        newValue: {
+          status: updatedAppointment.status,
+          paymentStatus: updatedAppointment.paymentStatus,
+          appointmentDate:
+            updatedAppointment.appointmentDate.toISOString(),
+          invoiceId: null,
+        },
+      });
+
+      return updatedAppointment;
     });
   }
 
@@ -305,15 +392,16 @@ export const updateAppointmentStatus = async (
     }
 
     if (!appointment.invoice) {
-      await prisma.$transaction(async (tx) => {
-        const updatedAppointment = await tx.appointment.update({
-          where: {
-            id: appointment.id,
-          },
-          data: {
-            status: "CONFIRMED",
-          },
-        });
+      return prisma.$transaction(async (tx) => {
+        const updatedAppointment =
+          await tx.appointment.update({
+            where: {
+              id: appointment.id,
+            },
+            data: {
+              status: "CONFIRMED",
+            },
+          });
 
         const doctor = await tx.doctor.findUnique({
           where: {
@@ -329,23 +417,67 @@ export const updateAppointmentStatus = async (
             status: "UNPAID",
           },
         });
-      });
 
-      return getAppointmentById(appointment.id);
+        await createAuditLog(tx, {
+          userId,
+          action: "APPOINTMENT_CONFIRMED",
+          entityType: "APPOINTMENT",
+          entityId: appointment.id,
+          oldValue: {
+            status: appointment.status,
+            paymentStatus: appointment.paymentStatus,
+            appointmentDate:
+              appointment.appointmentDate.toISOString(),
+            invoiceId: null,
+          },
+          newValue: {
+            status: "CONFIRMED",
+            paymentStatus: updatedAppointment.paymentStatus,
+            appointmentDate:
+              updatedAppointment.appointmentDate.toISOString(),
+            invoiceCreated: true,
+          },
+        });
+
+        return getAppointmentById(appointment.id);
+      });
     }
   }
 
-  return prisma.appointment.update({
-    where: {
-      id: appointment.id,
-    },
-    data: {
-      status,
-    },
-    include: {
-      patient: true,
-      doctor: true,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedAppointment = await tx.appointment.update({
+      where: {
+        id: appointment.id,
+      },
+      data: {
+        status,
+      },
+      include: {
+        patient: true,
+        doctor: true,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: `APPOINTMENT_${status}`,
+      entityType: "APPOINTMENT",
+      entityId: appointment.id,
+      oldValue: {
+        status: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+        appointmentDate:
+          appointment.appointmentDate.toISOString(),
+      },
+      newValue: {
+        status: updatedAppointment.status,
+        paymentStatus: updatedAppointment.paymentStatus,
+        appointmentDate:
+          updatedAppointment.appointmentDate.toISOString(),
+      },
+    });
+
+    return updatedAppointment;
   });
 };
 
@@ -375,6 +507,7 @@ export const getDoctorSchedules = async (doctorId) => {
 };
 
 export const createDoctorSchedule = async (
+  userId,
   doctorId,
   data
 ) => {
@@ -393,17 +526,36 @@ export const createDoctorSchedule = async (
     data.endTime
   );
 
-  return prisma.doctorSchedule.create({
-    data: {
-      doctorId,
-      dayOfWeek: data.dayOfWeek,
-      startTime,
-      endTime,
-    },
+  return prisma.$transaction(async (tx) => {
+    const schedule = await tx.doctorSchedule.create({
+      data: {
+        doctorId,
+        dayOfWeek: data.dayOfWeek,
+        startTime,
+        endTime,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "DOCTOR_SCHEDULE_CREATED",
+      entityType: "DOCTOR_SCHEDULE",
+      entityId: schedule.id,
+      oldValue: null,
+      newValue: {
+        doctorId: schedule.doctorId,
+        dayOfWeek: schedule.dayOfWeek,
+        startTime: schedule.startTime.toISOString(),
+        endTime: schedule.endTime.toISOString(),
+      },
+    });
+
+    return schedule;
   });
 };
 
 export const updateDoctorSchedule = async (
+  userId,
   scheduleId,
   data
 ) => {
@@ -441,25 +593,52 @@ export const updateDoctorSchedule = async (
     endTime = result.endTime;
   }
 
-  return prisma.doctorSchedule.update({
-    where: {
-      id: scheduleId,
-    },
-    data: {
-      ...(data.dayOfWeek !== undefined && {
-        dayOfWeek: data.dayOfWeek,
-      }),
-      ...(startTime && {
-        startTime,
-      }),
-      ...(endTime && {
-        endTime,
-      }),
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedSchedule =
+      await tx.doctorSchedule.update({
+        where: {
+          id: scheduleId,
+        },
+        data: {
+          ...(data.dayOfWeek !== undefined && {
+            dayOfWeek: data.dayOfWeek,
+          }),
+          ...(startTime && {
+            startTime,
+          }),
+          ...(endTime && {
+            endTime,
+          }),
+        },
+      });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "DOCTOR_SCHEDULE_UPDATED",
+      entityType: "DOCTOR_SCHEDULE",
+      entityId: schedule.id,
+      oldValue: {
+        doctorId: schedule.doctorId,
+        dayOfWeek: schedule.dayOfWeek,
+        startTime: schedule.startTime.toISOString(),
+        endTime: schedule.endTime.toISOString(),
+      },
+      newValue: {
+        doctorId: updatedSchedule.doctorId,
+        dayOfWeek: updatedSchedule.dayOfWeek,
+        startTime: updatedSchedule.startTime.toISOString(),
+        endTime: updatedSchedule.endTime.toISOString(),
+      },
+    });
+
+    return updatedSchedule;
   });
 };
 
-export const deleteDoctorSchedule = async (scheduleId) => {
+export const deleteDoctorSchedule = async (
+  userId,
+  scheduleId
+) => {
   const schedule = await prisma.doctorSchedule.findUnique({
     where: {
       id: scheduleId,
@@ -470,15 +649,31 @@ export const deleteDoctorSchedule = async (scheduleId) => {
     throw new Error("Schedule not found");
   }
 
-  await prisma.doctorSchedule.delete({
-    where: {
-      id: scheduleId,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.doctorSchedule.delete({
+      where: {
+        id: scheduleId,
+      },
+    });
 
-  return {
-    message: "Schedule deleted successfully",
-  };
+    await createAuditLog(tx, {
+      userId,
+      action: "DOCTOR_SCHEDULE_DELETED",
+      entityType: "DOCTOR_SCHEDULE",
+      entityId: schedule.id,
+      oldValue: {
+        doctorId: schedule.doctorId,
+        dayOfWeek: schedule.dayOfWeek,
+        startTime: schedule.startTime.toISOString(),
+        endTime: schedule.endTime.toISOString(),
+      },
+      newValue: null,
+    });
+
+    return {
+      message: "Schedule deleted successfully",
+    };
+  });
 };
 
 /* =========================
@@ -616,7 +811,7 @@ export const getSettings = async () => {
   });
 };
 
-export const createSetting = async (data) => {
+export const createSetting = async (userId, data) => {
   const existing = await prisma.clinicSetting.findUnique({
     where: {
       key: data.key,
@@ -627,12 +822,32 @@ export const createSetting = async (data) => {
     throw new Error("Setting already exists");
   }
 
-  return prisma.clinicSetting.create({
-    data,
+  return prisma.$transaction(async (tx) => {
+    const setting = await tx.clinicSetting.create({
+      data,
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "CLINIC_SETTING_CREATED",
+      entityType: "CLINIC_SETTING",
+      entityId: setting.id,
+      oldValue: null,
+      newValue: {
+        key: setting.key,
+        value: setting.value,
+      },
+    });
+
+    return setting;
   });
 };
 
-export const updateSetting = async (settingId, value) => {
+export const updateSetting = async (
+  userId,
+  settingId,
+  value
+) => {
   const setting = await prisma.clinicSetting.findUnique({
     where: {
       id: settingId,
@@ -643,17 +858,40 @@ export const updateSetting = async (settingId, value) => {
     throw new Error("Setting not found");
   }
 
-  return prisma.clinicSetting.update({
-    where: {
-      id: settingId,
-    },
-    data: {
-      value,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedSetting =
+      await tx.clinicSetting.update({
+        where: {
+          id: settingId,
+        },
+        data: {
+          value,
+        },
+      });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "CLINIC_SETTING_UPDATED",
+      entityType: "CLINIC_SETTING",
+      entityId: setting.id,
+      oldValue: {
+        key: setting.key,
+        value: setting.value,
+      },
+      newValue: {
+        key: updatedSetting.key,
+        value: updatedSetting.value,
+      },
+    });
+
+    return updatedSetting;
   });
 };
 
-export const deleteSetting = async (settingId) => {
+export const deleteSetting = async (
+  userId,
+  settingId
+) => {
   const setting = await prisma.clinicSetting.findUnique({
     where: {
       id: settingId,
@@ -664,15 +902,29 @@ export const deleteSetting = async (settingId) => {
     throw new Error("Setting not found");
   }
 
-  await prisma.clinicSetting.delete({
-    where: {
-      id: settingId,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.clinicSetting.delete({
+      where: {
+        id: settingId,
+      },
+    });
 
-  return {
-    message: "Setting deleted successfully",
-  };
+    await createAuditLog(tx, {
+      userId,
+      action: "CLINIC_SETTING_DELETED",
+      entityType: "CLINIC_SETTING",
+      entityId: setting.id,
+      oldValue: {
+        key: setting.key,
+        value: setting.value,
+      },
+      newValue: null,
+    });
+
+    return {
+      message: "Setting deleted successfully",
+    };
+  });
 };
 
 /* =========================
@@ -687,7 +939,10 @@ export const getBookingRules = async () => {
   });
 };
 
-export const createBookingRule = async (data) => {
+export const createBookingRule = async (
+  userId,
+  data
+) => {
   const existing = await prisma.bookingRule.findUnique({
     where: {
       key: data.key,
@@ -698,12 +953,29 @@ export const createBookingRule = async (data) => {
     throw new Error("Booking rule already exists");
   }
 
-  return prisma.bookingRule.create({
-    data,
+  return prisma.$transaction(async (tx) => {
+    const rule = await tx.bookingRule.create({
+      data,
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "BOOKING_RULE_CREATED",
+      entityType: "BOOKING_RULE",
+      entityId: rule.id,
+      oldValue: null,
+      newValue: {
+        key: rule.key,
+        value: rule.value,
+      },
+    });
+
+    return rule;
   });
 };
 
 export const updateBookingRule = async (
+  userId,
   ruleId,
   value
 ) => {
@@ -717,17 +989,40 @@ export const updateBookingRule = async (
     throw new Error("Booking rule not found");
   }
 
-  return prisma.bookingRule.update({
-    where: {
-      id: ruleId,
-    },
-    data: {
-      value,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedRule =
+      await tx.bookingRule.update({
+        where: {
+          id: ruleId,
+        },
+        data: {
+          value,
+        },
+      });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "BOOKING_RULE_UPDATED",
+      entityType: "BOOKING_RULE",
+      entityId: rule.id,
+      oldValue: {
+        key: rule.key,
+        value: rule.value,
+      },
+      newValue: {
+        key: updatedRule.key,
+        value: updatedRule.value,
+      },
+    });
+
+    return updatedRule;
   });
 };
 
-export const deleteBookingRule = async (ruleId) => {
+export const deleteBookingRule = async (
+  userId,
+  ruleId
+) => {
   const rule = await prisma.bookingRule.findUnique({
     where: {
       id: ruleId,
@@ -738,15 +1033,29 @@ export const deleteBookingRule = async (ruleId) => {
     throw new Error("Booking rule not found");
   }
 
-  await prisma.bookingRule.delete({
-    where: {
-      id: ruleId,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.bookingRule.delete({
+      where: {
+        id: ruleId,
+      },
+    });
 
-  return {
-    message: "Booking rule deleted successfully",
-  };
+    await createAuditLog(tx, {
+      userId,
+      action: "BOOKING_RULE_DELETED",
+      entityType: "BOOKING_RULE",
+      entityId: rule.id,
+      oldValue: {
+        key: rule.key,
+        value: rule.value,
+      },
+      newValue: null,
+    });
+
+    return {
+      message: "Booking rule deleted successfully",
+    };
+  });
 };
 
 /* =========================
@@ -768,15 +1077,34 @@ export const getRoles = async () => {
   });
 };
 
-export const createRole = async (data) => {
-  return prisma.role.create({
-    data: {
-      name: data.name,
-    },
+export const createRole = async (userId, data) => {
+  return prisma.$transaction(async (tx) => {
+    const role = await tx.role.create({
+      data: {
+        name: data.name,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "ROLE_CREATED",
+      entityType: "ROLE",
+      entityId: role.id,
+      oldValue: null,
+      newValue: {
+        name: role.name,
+      },
+    });
+
+    return role;
   });
 };
 
-export const updateRole = async (roleId, name) => {
+export const updateRole = async (
+  userId,
+  roleId,
+  name
+) => {
   const role = await prisma.role.findUnique({
     where: {
       id: roleId,
@@ -787,17 +1115,37 @@ export const updateRole = async (roleId, name) => {
     throw new Error("Role not found");
   }
 
-  return prisma.role.update({
-    where: {
-      id: roleId,
-    },
-    data: {
-      name,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedRole = await tx.role.update({
+      where: {
+        id: roleId,
+      },
+      data: {
+        name,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "ROLE_UPDATED",
+      entityType: "ROLE",
+      entityId: role.id,
+      oldValue: {
+        name: role.name,
+      },
+      newValue: {
+        name: updatedRole.name,
+      },
+    });
+
+    return updatedRole;
   });
 };
 
-export const deleteRole = async (roleId) => {
+export const deleteRole = async (
+  userId,
+  roleId
+) => {
   const role = await prisma.role.findUnique({
     where: {
       id: roleId,
@@ -811,21 +1159,37 @@ export const deleteRole = async (roleId) => {
     throw new Error("Role not found");
   }
 
-  await prisma.rolePermission.deleteMany({
-    where: {
-      roleId,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.rolePermission.deleteMany({
+      where: {
+        roleId,
+      },
+    });
 
-  await prisma.role.delete({
-    where: {
-      id: roleId,
-    },
-  });
+    await tx.role.delete({
+      where: {
+        id: roleId,
+      },
+    });
 
-  return {
-    message: "Role deleted successfully",
-  };
+    await createAuditLog(tx, {
+      userId,
+      action: "ROLE_DELETED",
+      entityType: "ROLE",
+      entityId: role.id,
+      oldValue: {
+        name: role.name,
+        permissionIds: role.permissions.map(
+          (permission) => permission.permissionId
+        ),
+      },
+      newValue: null,
+    });
+
+    return {
+      message: "Role deleted successfully",
+    };
+  });
 };
 
 /* =========================
@@ -840,15 +1204,34 @@ export const getPermissions = async () => {
   });
 };
 
-export const createPermission = async (data) => {
-  return prisma.permission.create({
-    data: {
-      name: data.name,
-    },
+export const createPermission = async (
+  userId,
+  data
+) => {
+  return prisma.$transaction(async (tx) => {
+    const permission = await tx.permission.create({
+      data: {
+        name: data.name,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "PERMISSION_CREATED",
+      entityType: "PERMISSION",
+      entityId: permission.id,
+      oldValue: null,
+      newValue: {
+        name: permission.name,
+      },
+    });
+
+    return permission;
   });
 };
 
 export const updatePermission = async (
+  userId,
   permissionId,
   name
 ) => {
@@ -862,17 +1245,38 @@ export const updatePermission = async (
     throw new Error("Permission not found");
   }
 
-  return prisma.permission.update({
-    where: {
-      id: permissionId,
-    },
-    data: {
-      name,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedPermission =
+      await tx.permission.update({
+        where: {
+          id: permissionId,
+        },
+        data: {
+          name,
+        },
+      });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "PERMISSION_UPDATED",
+      entityType: "PERMISSION",
+      entityId: permission.id,
+      oldValue: {
+        name: permission.name,
+      },
+      newValue: {
+        name: updatedPermission.name,
+      },
+    });
+
+    return updatedPermission;
   });
 };
 
-export const deletePermission = async (permissionId) => {
+export const deletePermission = async (
+  userId,
+  permissionId
+) => {
   const permission = await prisma.permission.findUnique({
     where: {
       id: permissionId,
@@ -883,24 +1287,51 @@ export const deletePermission = async (permissionId) => {
     throw new Error("Permission not found");
   }
 
-  await prisma.rolePermission.deleteMany({
-    where: {
-      permissionId,
-    },
-  });
+  const rolePermissions =
+    await prisma.rolePermission.findMany({
+      where: {
+        permissionId,
+      },
+      select: {
+        roleId: true,
+      },
+    });
 
-  await prisma.permission.delete({
-    where: {
-      id: permissionId,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.rolePermission.deleteMany({
+      where: {
+        permissionId,
+      },
+    });
 
-  return {
-    message: "Permission deleted successfully",
-  };
+    await tx.permission.delete({
+      where: {
+        id: permissionId,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "PERMISSION_DELETED",
+      entityType: "PERMISSION",
+      entityId: permission.id,
+      oldValue: {
+        name: permission.name,
+        roleIds: rolePermissions.map(
+          (rolePermission) => rolePermission.roleId
+        ),
+      },
+      newValue: null,
+    });
+
+    return {
+      message: "Permission deleted successfully",
+    };
+  });
 };
 
 export const assignPermissionToRole = async (
+  userId,
   roleId,
   permissionId
 ) => {
@@ -938,19 +1369,39 @@ export const assignPermissionToRole = async (
     throw new Error("Permission already assigned to role");
   }
 
-  return prisma.rolePermission.create({
-    data: {
-      roleId,
-      permissionId,
-    },
-    include: {
-      role: true,
-      permission: true,
-    },
+  return prisma.$transaction(async (tx) => {
+    const rolePermission =
+      await tx.rolePermission.create({
+        data: {
+          roleId,
+          permissionId,
+        },
+        include: {
+          role: true,
+          permission: true,
+        },
+      });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "PERMISSION_ASSIGNED_TO_ROLE",
+      entityType: "ROLE_PERMISSION",
+      entityId: rolePermission.roleId,
+      oldValue: null,
+      newValue: {
+        roleId: rolePermission.roleId,
+        permissionId: rolePermission.permissionId,
+        roleName: role.name,
+        permissionName: permission.name,
+      },
+    });
+
+    return rolePermission;
   });
 };
 
 export const removePermissionFromRole = async (
+  userId,
   roleId,
   permissionId
 ) => {
@@ -961,24 +1412,44 @@ export const removePermissionFromRole = async (
         permissionId,
       },
     },
+    include: {
+      role: true,
+      permission: true,
+    },
   });
 
   if (!existing) {
     throw new Error("Permission is not assigned to role");
   }
 
-  await prisma.rolePermission.delete({
-    where: {
-      roleId_permissionId: {
-        roleId,
-        permissionId,
+  return prisma.$transaction(async (tx) => {
+    await tx.rolePermission.delete({
+      where: {
+        roleId_permissionId: {
+          roleId,
+          permissionId,
+        },
       },
-    },
-  });
+    });
 
-  return {
-    message: "Permission removed from role",
-  };
+    await createAuditLog(tx, {
+      userId,
+      action: "PERMISSION_REMOVED_FROM_ROLE",
+      entityType: "ROLE_PERMISSION",
+      entityId: existing.roleId,
+      oldValue: {
+        roleId: existing.roleId,
+        permissionId: existing.permissionId,
+        roleName: existing.role.name,
+        permissionName: existing.permission.name,
+      },
+      newValue: null,
+    });
+
+    return {
+      message: "Permission removed from role",
+    };
+  });
 };
 
 /* =========================

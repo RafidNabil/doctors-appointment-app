@@ -1,4 +1,5 @@
 import { prisma } from "../../config/prisma.js";
+import { createAuditLog } from "../../utils/audit.js";
 
 export const createPrescription = async (doctorUserId, data) => {
   const doctor = await prisma.doctor.findUnique({
@@ -22,11 +23,15 @@ export const createPrescription = async (doctorUserId, data) => {
   }
 
   if (appointment.doctorId !== doctor.id) {
-    throw new Error("You can only create prescriptions for your own appointments");
+    throw new Error(
+      "You can only create prescriptions for your own appointments"
+    );
   }
 
   if (appointment.status !== "COMPLETED") {
-    throw new Error("Prescription can only be created for a completed appointment");
+    throw new Error(
+      "Prescription can only be created for a completed appointment"
+    );
   }
 
   const existingPrescription = await prisma.prescription.findUnique({
@@ -36,25 +41,49 @@ export const createPrescription = async (doctorUserId, data) => {
   });
 
   if (existingPrescription) {
-    throw new Error("A prescription already exists for this appointment");
+    throw new Error(
+      "A prescription already exists for this appointment"
+    );
   }
 
-  return prisma.prescription.create({
-    data: {
-      appointmentId: appointment.id,
-      items: {
-        create: data.items,
-      },
-    },
-    include: {
-      items: true,
-      appointment: {
-        include: {
-          patient: true,
-          doctor: true,
+  return prisma.$transaction(async (tx) => {
+    const prescription = await tx.prescription.create({
+      data: {
+        appointmentId: appointment.id,
+        items: {
+          create: data.items,
         },
       },
-    },
+      include: {
+        items: true,
+        appointment: {
+          include: {
+            patient: true,
+            doctor: true,
+          },
+        },
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId: doctorUserId,
+      action: "PRESCRIPTION_CREATED",
+      entityType: "PRESCRIPTION",
+      entityId: prescription.id,
+      oldValue: null,
+      newValue: {
+        appointmentId: appointment.id,
+        items: prescription.items.map((item) => ({
+          id: item.id,
+          medication: item.medication,
+          dosage: item.dosage,
+          frequency: item.frequency,
+          duration: item.duration,
+        })),
+      },
+    });
+
+    return prescription;
   });
 };
 
@@ -272,7 +301,7 @@ export const updatePrescription = async (
       }
     }
 
-    return tx.prescription.findUnique({
+    const updatedPrescription = await tx.prescription.findUnique({
       where: {
         id: prescriptionId,
       },
@@ -286,5 +315,32 @@ export const updatePrescription = async (
         },
       },
     });
+
+    await createAuditLog(tx, {
+      userId: doctorUserId,
+      action: "PRESCRIPTION_UPDATED",
+      entityType: "PRESCRIPTION",
+      entityId: prescriptionId,
+      oldValue: {
+        items: prescription.items.map((item) => ({
+          id: item.id,
+          medication: item.medication,
+          dosage: item.dosage,
+          frequency: item.frequency,
+          duration: item.duration,
+        })),
+      },
+      newValue: {
+        items: updatedPrescription.items.map((item) => ({
+          id: item.id,
+          medication: item.medication,
+          dosage: item.dosage,
+          frequency: item.frequency,
+          duration: item.duration,
+        })),
+      },
+    });
+
+    return updatedPrescription;
   });
 };

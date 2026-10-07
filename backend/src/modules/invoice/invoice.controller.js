@@ -5,9 +5,11 @@ import {
   getMyInvoices as getMyInvoicesService,
 } from "./invoice.service.js";
 
+
+
 export const createInvoice = async (req, res, next) => {
   try {
-    const invoice = await createInvoiceService(req.body);
+    const invoice = await createInvoiceService(req.user.userId, req.body);
 
     res.status(201).json({
       success: true,
@@ -20,7 +22,7 @@ export const createInvoice = async (req, res, next) => {
 
 export const deleteInvoice = async (req, res, next) => {
   try {
-    const result = await deleteInvoiceService(req.params.id);
+    const result = await deleteInvoiceService(req.user.userId, req.params.id);
 
     res.json({
       success: true,

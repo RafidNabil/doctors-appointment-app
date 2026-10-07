@@ -1,4 +1,5 @@
 import { prisma } from "../../config/prisma.js";
+import { createAuditLog } from "../../utils/audit.js";
 
 const getDayOfWeek = (dateString) => {
   const date = new Date(`${dateString}T00:00:00.000Z`);
@@ -148,6 +149,21 @@ export const bookAppointment = async (patientUserId, data) => {
         amount: doctor.consultationFee,
         total: doctor.consultationFee,
         status: "UNPAID",
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId: patientUserId,
+      action: "APPOINTMENT_BOOKED",
+      entityType: "APPOINTMENT",
+      entityId: appointment.id,
+      oldValue: null,
+      newValue: {
+        patientId: patient.id,
+        doctorId: doctor.id,
+        appointmentDate: appointmentDate.toISOString(),
+        status: "CONFIRMED",
+        paymentStatus: "PENDING",
       },
     });
 
@@ -374,7 +390,7 @@ export const cancelAppointment = async (
       });
     }
 
-    return tx.appointment.update({
+    const updatedAppointment = await tx.appointment.update({
       where: {
         id: appointment.id,
       },
@@ -392,6 +408,21 @@ export const cancelAppointment = async (
         },
       },
     });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "APPOINTMENT_CANCELLED",
+      entityType: "APPOINTMENT",
+      entityId: appointment.id,
+      oldValue: {
+        status: appointment.status,
+      },
+      newValue: {
+        status: "CANCELLED",
+      },
+    });
+
+    return updatedAppointment;
   });
 };
 
@@ -445,16 +476,33 @@ export const rescheduleAppointment = async (
     );
   }
 
-  return prisma.appointment.update({
-    where: {
-      id: appointment.id,
-    },
-    data: {
-      appointmentDate: newAppointmentDate,
-    },
-    include: {
-      invoice: true,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedAppointment = await tx.appointment.update({
+      where: {
+        id: appointment.id,
+      },
+      data: {
+        appointmentDate: newAppointmentDate,
+      },
+      include: {
+        invoice: true,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "APPOINTMENT_RESCHEDULED",
+      entityType: "APPOINTMENT",
+      entityId: appointment.id,
+      oldValue: {
+        appointmentDate: appointment.appointmentDate.toISOString(),
+      },
+      newValue: {
+        appointmentDate: newAppointmentDate.toISOString(),
+      },
+    });
+
+    return updatedAppointment;
   });
 };
 
@@ -484,16 +532,33 @@ export const completeAppointment = async (
     throw new Error("Appointment not found");
   }
 
-  return prisma.appointment.update({
-    where: {
-      id: appointment.id,
-    },
-    data: {
-      status: "COMPLETED",
-    },
-    include: {
-      invoice: true,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedAppointment = await tx.appointment.update({
+      where: {
+        id: appointment.id,
+      },
+      data: {
+        status: "COMPLETED",
+      },
+      include: {
+        invoice: true,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "APPOINTMENT_COMPLETED",
+      entityType: "APPOINTMENT",
+      entityId: appointment.id,
+      oldValue: {
+        status: appointment.status,
+      },
+      newValue: {
+        status: "COMPLETED",
+      },
+    });
+
+    return updatedAppointment;
   });
 };
 
@@ -545,7 +610,7 @@ export const markNoShow = async (
       });
     }
 
-    return tx.appointment.update({
+    const updatedAppointment = await tx.appointment.update({
       where: {
         id: appointment.id,
       },
@@ -563,6 +628,21 @@ export const markNoShow = async (
         },
       },
     });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "APPOINTMENT_NO_SHOW",
+      entityType: "APPOINTMENT",
+      entityId: appointment.id,
+      oldValue: {
+        status: appointment.status,
+      },
+      newValue: {
+        status: "NO_SHOW",
+      },
+    });
+
+    return updatedAppointment;
   });
 };
 

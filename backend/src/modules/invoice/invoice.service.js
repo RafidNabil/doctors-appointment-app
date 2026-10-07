@@ -1,6 +1,7 @@
 import { prisma } from "../../config/prisma.js";
+import { createAuditLog } from "../../utils/audit.js";
 
-export const createInvoice = async (data) => {
+export const createInvoice = async (userId, data) => {
   const appointment = await prisma.appointment.findUnique({
     where: {
       id: data.appointmentId,
@@ -34,26 +35,44 @@ export const createInvoice = async (data) => {
     throw new Error("An invoice already exists for this appointment");
   }
 
-  return prisma.invoice.create({
-    data: {
-      appointmentId: appointment.id,
-      amount: data.amount,
-      total: data.total,
-      status: "UNPAID",
-    },
-    include: {
-      appointment: {
-        include: {
-          patient: true,
-          doctor: true,
-        },
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.create({
+      data: {
+        appointmentId: appointment.id,
+        amount: data.amount,
+        total: data.total,
+        status: "UNPAID",
       },
-      payments: true,
-    },
+      include: {
+        appointment: {
+          include: {
+            patient: true,
+            doctor: true,
+          },
+        },
+        payments: true,
+      },
+    });
+
+    await createAuditLog(tx, {
+      userId,
+      action: "INVOICE_CREATED",
+      entityType: "INVOICE",
+      entityId: invoice.id,
+      oldValue: null,
+      newValue: {
+        appointmentId: invoice.appointmentId,
+        amount: invoice.amount.toString(),
+        total: invoice.total.toString(),
+        status: invoice.status,
+      },
+    });
+
+    return invoice;
   });
 };
 
-export const deleteInvoice = async (invoiceId) => {
+export const deleteInvoice = async (userId, invoiceId) => {
   const invoice = await prisma.invoice.findUnique({
     where: {
       id: invoiceId,
@@ -77,15 +96,31 @@ export const deleteInvoice = async (invoiceId) => {
     );
   }
 
-  await prisma.invoice.delete({
-    where: {
-      id: invoiceId,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.invoice.delete({
+      where: {
+        id: invoiceId,
+      },
+    });
 
-  return {
-    message: "Invoice deleted successfully",
-  };
+    await createAuditLog(tx, {
+      userId,
+      action: "ADMIN_INVOICE_DELETED",
+      entityType: "INVOICE",
+      entityId: invoiceId,
+      oldValue: {
+        appointmentId: invoice.appointmentId,
+        amount: invoice.amount.toString(),
+        total: invoice.total.toString(),
+        status: invoice.status,
+      },
+      newValue: null,
+    });
+
+    return {
+      message: "Invoice deleted successfully",
+    };
+  });
 };
 
 export const getInvoiceById = async (userId, role, invoiceId) => {
